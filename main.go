@@ -8,10 +8,15 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
+
+	"github.com/W-Knight96/pokedexcli/internal/pokecache"
 )
 
 func main() {
-	cfg := &Config{} // Add this at the start
+	cfg := &Config{
+		Cache: pokecache.NewCache(5 * time.Second),
+	}
 	scanned := bufio.NewScanner(os.Stdin)
 	for {
 		fmt.Print("Pokedex > ")
@@ -47,9 +52,10 @@ type cliCommand struct {
 }
 
 type Config struct {
-	Next     string     `json:"next"`
-	Previous string     `json:"previous"`
-	Results  []Location `json:"results"`
+	Next     string           `json:"next"`
+	Previous string           `json:"previous"`
+	Results  []Location       `json:"results"`
+	Cache    *pokecache.Cache `json:"cache"`
 }
 
 type Location struct {
@@ -83,20 +89,29 @@ func callMap(cfg *Config) error {
 		url = cfg.Next
 	}
 
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+	if cachedData, ok := cfg.Cache.Get(url); ok {
+		err := json.Unmarshal(cachedData, &cfg)
+		if err != nil {
+			return err
+		}
+	} else {
+		resp, err := http.Get(url)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
 
-	err = json.Unmarshal(body, &cfg)
-	if err != nil {
-		return err
+		cfg.Cache.Add(url, body)
+
+		err = json.Unmarshal(body, &cfg)
+		if err != nil {
+			return err
+		}
 	}
 
 	for _, location := range cfg.Results {
@@ -106,7 +121,6 @@ func callMap(cfg *Config) error {
 }
 
 func callMapb(cfg *Config) error {
-	// Check if we're on first page
 	if cfg.Previous == "" {
 		fmt.Println("you're on the first page")
 		return nil
@@ -114,20 +128,29 @@ func callMapb(cfg *Config) error {
 
 	url := cfg.Previous
 
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+	if cachedData, ok := cfg.Cache.Get(url); ok {
+		err := json.Unmarshal(cachedData, &cfg)
+		if err != nil {
+			return err
+		}
+	} else {
+		resp, err := http.Get(url)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
 
-	err = json.Unmarshal(body, &cfg)
-	if err != nil {
-		return err
+		cfg.Cache.Add(url, body)
+
+		err = json.Unmarshal(body, &cfg)
+		if err != nil {
+			return err
+		}
 	}
 
 	for _, location := range cfg.Results {
